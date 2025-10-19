@@ -1052,7 +1052,7 @@ def recommend(user_id, filter_following):
     # Get top 10 keywords
     top_keywords = [word for word, _ in word_counts.most_common(10)]
     
-    # Step 3: Get candidate posts from all users
+    #candidate posts from all users
     query = '''
         SELECT p.id, p.content, p.created_at, u.username, u.id as user_id
         FROM posts p
@@ -1061,22 +1061,21 @@ def recommend(user_id, filter_following):
     '''
     candidate_posts = query_db(query, (user_id,))
     
-    # Get list of followed users
+    #list of followed users
     followed_users = {row['followed_id'] for row in query_db('SELECT followed_id FROM follows WHERE follower_id = ?', (user_id,))}
-    # Step 4: Score and filter posts
+    #Score and filter posts
     liked_post_ids = {row['post_id'] for row in query_db('SELECT post_id FROM reactions WHERE user_id = ?', (user_id,))}
     
     scored_posts = []
     for post in candidate_posts:
-        # Skip already liked posts
         if post['id'] in liked_post_ids:
             continue
         
-        # Calculate relevance score based on keyword matches
+        #relevance score based on keyword matches
         content_lower = post['content'].lower()
         keyword_score = sum(1 for keyword in top_keywords if keyword in content_lower)
         
-        # Bonus points if post is from a followed user
+        #Bonus points if post is from a followed user
         follow_bonus = 20 if post['user_id'] in followed_users else 0
         
         total_score = keyword_score + follow_bonus
@@ -1084,14 +1083,14 @@ def recommend(user_id, filter_following):
         if total_score > 0:
             scored_posts.append((total_score, post))
     
-    # Step 5: Sort by relevance score then by recency
     scored_posts.sort(key=lambda x: (x[0], x[1]['created_at']), reverse=True)
     
-    # Return top 5 posts
+    #top 5 posts
     recommended = [post for score, post in scored_posts[:5]]
     
     return recommended
 
 if __name__ == '__main__':
     app.run(debug=True, port=8080)
+
 
