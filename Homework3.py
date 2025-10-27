@@ -77,96 +77,6 @@ def query_db(query, args=(), one=False, commit=False):
     except sqlite3.Error as e:
         print(f"Database error: {e}")
         return None
-    
-
-@app.route('/posts/<int:post_id>/bookmark', methods=['POST'])
-def bookmark_post(post_id):
-    user_id = session.get('user_id')
-
-    if not user_id:
-        flash("You must be logged in to bookmark posts.", "danger")
-        return redirect(url_for('login'))
-
-    post = query_db('SELECT id FROM posts WHERE id = ?', (post_id,), one=True)
-    if not post:
-        flash("Post not found.", "danger")
-        return redirect(url_for('feed'))
-
-    db = get_db()
-    try:
-        db.execute('INSERT INTO bookmarks (user_id, post_id) VALUES (?, ?)',
-                   (user_id, post_id))
-        db.commit()
-        flash("Post bookmarked!", "success")
-    except sqlite3.IntegrityError:
-        flash("Post already bookmarked.", "info")
-
-    return redirect(request.referrer or url_for('feed'))
-
-@app.route('/posts/<int:post_id>/unbookmark', methods=['POST'])
-def unbookmark_post(post_id):
-    user_id = session.get('user_id')
-
-    if not user_id:
-        flash("You must be logged in to unbookmark posts.", "danger")
-        return redirect(url_for('login'))
-
-    db = get_db()
-    cur = db.execute('DELETE FROM bookmarks WHERE user_id = ? AND post_id = ?',
-                     (user_id, post_id))
-    db.commit()
-
-    if cur.rowcount > 0:
-        flash("Bookmark removed.", "success")
-    else:
-        flash("Post was not bookmarked.", "info")
-
-    return redirect(request.referrer or url_for('feed'))  
-
-@app.route('/bookmarks')
-def bookmarks():
-    user_id = session.get('user_id')
-
-    if not user_id:
-        flash("You must be logged in to view bookmarks.", "danger")
-        return redirect(url_for('login'))
-
-    bookmarked_posts = query_db('''
-        SELECT p.id, p.content, p.created_at, u.username, u.id as user_id
-        FROM bookmarks b
-        JOIN posts p ON b.post_id = p.id
-        JOIN users u ON p.user_id = u.id
-        WHERE b.user_id = ?
-        ORDER BY b.created_at DESC
-    ''', (user_id,))
-
-    posts_data = []
-    for post in bookmarked_posts:
-        reactions = query_db('SELECT reaction_type, COUNT(*) as count FROM reactions WHERE post_id = ? GROUP BY reaction_type', (post['id'],))
-        comments_raw = query_db('SELECT c.id, c.content, c.created_at, u.username, u.id as user_id FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC', (post['id'],))
-        
-        post_dict = dict(post)
-        post_dict['content'], _ = moderate_content(post_dict['content'])
-        
-        comments_moderated = []
-        for comment in comments_raw:
-            comment_dict = dict(comment)
-            comment_dict['content'], _ = moderate_content(comment_dict['content'])
-            comments_moderated.append(comment_dict)
-        
-        posts_data.append({
-            'post': post_dict,
-            'reactions': reactions,
-            'user_reaction': None,
-            'followed_poster': False,
-            'comments': comments_moderated,
-            'is_bookmarked': True  
-        })
-
-    return render_template('bookmarks.html.j2', 
-                           posts=posts_data,
-                           reaction_emojis=REACTION_EMOJIS,
-                           reaction_types=REACTION_TYPES) 
 
 @app.template_filter('datetimeformat')
 def datetimeformat(value):
@@ -263,16 +173,6 @@ def feed():
             )
             if reaction_check:
                 user_reaction = reaction_check['reaction_type']
-                # Check if the current user has bookmarked this post
-        is_bookmarked = False
-        if current_user_id:
-            bookmark_check = query_db(
-                'SELECT 1 FROM bookmarks WHERE user_id = ? AND post_id = ?',
-                (current_user_id, post['id']),
-                one=True
-            )
-            if bookmark_check:
-                is_bookmarked = True
 
         reactions = query_db('SELECT reaction_type, COUNT(*) as count FROM reactions WHERE post_id = ? GROUP BY reaction_type', (post['id'],))
         comments_raw = query_db('SELECT c.id, c.content, c.created_at, u.username, u.id as user_id FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC', (post['id'],))
@@ -288,8 +188,7 @@ def feed():
             'reactions': reactions,
             'user_reaction': user_reaction,
             'followed_poster': followed_poster,
-            'comments': comments_moderated,
-            'is_bookmarked': is_bookmarked
+            'comments': comments_moderated
         })
 
     #  4. Render Template with Pagination Info 
